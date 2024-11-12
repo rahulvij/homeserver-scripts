@@ -1,0 +1,25 @@
+---
+- name: Update Pi-hole on multiple LXC containers
+  hosts: pihole
+  become: yes
+  gather_facts: no
+  vars:
+    lxc_id: "{{ hostvars[inventory_hostname].lxc_id }}"  # Set lxc_id from inventory variables
+
+  tasks:
+
+    - name: Update Pi-hole inside the container
+      command: "pct exec {{ lxc_id }} -- pihole -up"
+      register: pihole_update
+      failed_when: false  # Continue even if the update command fails
+      delegate_to: "{{ ansible_host }}"  # Run this task on the Proxmox host
+
+    - name: Check Pi-hole update result
+      debug:
+        msg: "Pi-hole update completed with exit code {{ pihole_update.rc }}"
+      delegate_to: "{{ ansible_host }}"  # Run this task on the Proxmox host
+
+    - name: Restart Pi-hole service if update was successful
+      command: "pct exec {{ lxc_id }} -- pihole restartdns"
+      when: pihole_update.rc == 0  # Only restart Pi-hole if update was successful
+      delegate_to: "{{ ansible_host }}"  # Run this task on the Proxmox host

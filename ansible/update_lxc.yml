@@ -1,0 +1,41 @@
+- name: Update Debian-based LXC containers on multiple Proxmox servers
+  hosts: lxcs
+  become: yes
+  gather_facts: no
+  vars:
+    # Ensure lxc_id is defined, either passed as an extra-vars or in the inventory
+    # Example: lxc_id: 101
+    lxc_id: "{{ hostvars[inventory_hostname].lxc_id }}"  # Set lxc_id from inventory variables
+
+  tasks:
+
+    - name: Update apt package cache inside container
+      command: "pct exec {{ lxc_id }} -- apt-get update"
+      register: apt_update
+      failed_when: false  # Proceed even if the apt update fails
+      delegate_to: "{{ ansible_host }}"  # Run all tasks on the respective Proxmox host
+  
+    - name: Upgrade packages inside container
+      command: "pct exec {{ lxc_id }} -- apt-get -y upgrade"
+      when: apt_update.rc == 0  # Only upgrade if the update succeeded
+      delegate_to: "{{ ansible_host }}"  # Run all tasks on the respective Proxmox host
+
+    - name: Check if reboot is required inside container
+      command: "pct exec {{ lxc_id }} -- test -f /var/run/reboot-required"
+      register: reboot_required
+      failed_when: false  # Continue even if the file does not exist
+      delegate_to: "{{ ansible_host }}"  # Run all tasks on the respective Proxmox host
+
+    - name: Reboot container if required
+      command: "pct reboot {{ lxc_id }}"
+      when: reboot_required.rc == 0  # Only reboot if the file exists
+      delegate_to: "{{ ansible_host }}"  # Run all tasks on the respective Proxmox host
+
+    - name: Wait for container to come back online if rebooted
+      wait_for:
+        host: "{{ inventory_hostname }}"
+        port: 22
+        delay: 10
+        timeout: 300
+      when: reboot_required.rc == 0  # Only wait if a reboot occurred
+      delegate_to: "{{ ansible_host }}"  # Run all tasks on the respective Proxmox host
